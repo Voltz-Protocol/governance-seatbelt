@@ -46,6 +46,8 @@ export async function simulate(config: SimulationConfig) {
 async function simulateNew(config: SimulationConfigNew): Promise<SimulationResult> {
   const { governorAddress, targets, values, signatures, calldatas, description } = config
 
+  console.log("Targets", targets);
+
   // --- Get details about the proposal we're simulating ---
   const network = await provider.getNetwork()
   const blockNumberToUse = (await getLatestBlock(network.chainId)) - 3 // subtracting a few blocks to ensure tenderly has the block
@@ -123,7 +125,7 @@ async function simulateNew(config: SimulationConfigNew): Promise<SimulationResul
     gas: BLOCK_GAS_LIMIT,
     gas_price: '0',
     value,
-    save: false, // set this to true to see the simulated transaction in your Tenderly dashboard (useful for debugging)
+    save: true, // set this to true to see the simulated transaction in your Tenderly dashboard (useful for debugging)
     generate_access_list: true, // not required, but useful as a sanity check to ensure consistency in the simulation response
     block_header: {
       // this data represents what block.number and block.timestamp should return in the EVM during the simulation
@@ -247,7 +249,7 @@ async function simulateProposed(config: SimulationConfigProposed): Promise<Simul
     gas: BLOCK_GAS_LIMIT,
     gas_price: '0',
     value,
-    save: false, // set this to true to see the simulated transaction in your Tenderly dashboard (useful for debugging)
+    save: true, // set this to true to see the simulated transaction in your Tenderly dashboard (useful for debugging)
     generate_access_list: true, // not required, but useful as a sanity check to ensure consistency in the simulation response
     block_header: {
       // this data represents what block.number and block.timestamp should return in the EVM during the simulation
@@ -314,7 +316,7 @@ async function simulateExecuted(config: SimulationConfigExecuted): Promise<Simul
     gas: tx.gasLimit.toNumber(),
     gas_price: tx.gasPrice?.toString(),
     value: tx.value.toString(),
-    save: false,
+    save: true,
     generate_access_list: true,
   }
   const sim = await sendSimulation(simulationPayload)

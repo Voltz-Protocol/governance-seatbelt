@@ -8,17 +8,19 @@ import {ENS_REGISTRY_ABI} from "../utils/contracts/ens-registry";
 import { Interface } from '@ethersproject/abi'; 
 import { namehash } from '@ethersproject/hash';
 import { keccak256 } from '@ethersproject/keccak256';
+import { utils } from 'ethers';
 
 const ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
 
 const NODE: string = namehash("uniswap.eth");
-const LABEL: string = keccak256('v3-core-license-grants');
+const LABEL: string = keccak256(utils.toUtf8Bytes("v3-core-license-grants"));
 const OWNER_UNISWAP_GOVERNANCE_TIMELOCK: string = "0x1a9C8182C09F50C8318d769245beA52c32BE35BC";
 const RESOLVER_PUBLIC_ENS_RESOLVER: string = "0x4976fb03c32e5b8cfe2b6ccb31c09ba78ebaba41";
 const TTL: number = 0;
 
 const ensRegistryInterface = new Interface(ENS_REGISTRY_ABI);
 const setSubnodeRecordCalldata = ensRegistryInterface.encodeFunctionData("setSubnodeRecord", [NODE, LABEL, OWNER_UNISWAP_GOVERNANCE_TIMELOCK, RESOLVER_PUBLIC_ENS_RESOLVER, TTL]);
+
 
 export const config: SimulationConfigNew = {
     type: "new",

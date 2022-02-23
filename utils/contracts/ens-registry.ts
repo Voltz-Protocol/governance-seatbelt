@@ -8,6 +8,6 @@ export const ENS_REGISTRY_ABI = [
     'event NewTTL(bytes32 indexed node, uint64 ttl)',
     'event ApprovalForAll(address indexed owner, address indexed operator, bool approved)',
     'function setSubnodeRecord(bytes32 node, bytes32 label, address owner, address resolver, uint64 ttl) external',
-]
+];
 
 export const ensRegistry = (address: string) => new Contract(address, ENS_REGISTRY_ABI, provider);
