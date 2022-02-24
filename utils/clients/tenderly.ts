@@ -67,7 +67,7 @@ async function simulateNew(config: SimulationConfigNew): Promise<SimulationResul
     targets,
     values: values.map(BigNumber.from),
     signatures,
-    calldatas
+    calldatas,
   }
 
   // --- Storage slots and offsets for GovernorBravo ---
@@ -101,6 +101,57 @@ async function simulateNew(config: SimulationConfigNew): Promise<SimulationResul
     const slot = getSolidityStorageSlotBytes(queuedTxsSlot, hash)
     timelockStorageObj[slot] = hexZeroPad('0x1', 32) // boolean value of true, encoded
   })
+
+  // Generate the state object to hold the proposal data in the governor
+  const governorStorageObj: Record<string, string> = {}
+  targets.forEach((target, i) => {
+    // for dynamic arrays, the slot of that array stores the length of the array
+    governorStorageObj[govSlots.targets] = to32ByteHexString(1)
+    governorStorageObj[govSlots.values] = to32ByteHexString(values.length)
+
+    // for dynamic arrays, data starts in the hash of the slot value
+    const targetSlotStart = BigNumber.from(keccak256(govSlots.targets))
+    const valuesSlotStart = BigNumber.from(keccak256(govSlots.values))
+
+    // store data based on the current index
+    const targetSlot = to32ByteHexString(targetSlotStart.add(i))
+    const valuesSlot = to32ByteHexString(valuesSlotStart.add(i))
+    governorStorageObj[targetSlot] = to32ByteHexString(targets[i])
+    governorStorageObj[valuesSlot] = to32ByteHexString(values[i])
+
+    // for now, we require signatures to be empty so the slot stays empty, i.e. we don't need to store anything
+    // TODO support non-empty signatures
+    // governorStorageObj[govSlots.signatures] = to32ByteHexString(0)
+
+    // Calldata type is bytes, so the slot itself stores `lengthInBytes * 2 + 1`
+    governorStorageObj[govSlots.calldatas] = to32ByteHexString(calldatas[i].slice(2).length + 1)
+
+    // Then calldata is chunked in 32 byte increments starting at keccak(slot)
+    const calldataValSlotStart = to32ByteHexString(keccak256(govSlots.calldatas))
+    const slotsRequired = Math.ceil(calldatas[i].slice(2).length / 64)
+
+    const calldataNo0xPrefix = calldatas[i].slice(2)
+    for (let j = 0; j < slotsRequired; j += 1) {
+      const slot = to32ByteHexString(BigNumber.from(calldataValSlotStart).add(j))
+      const startIndex = 64 * j
+      const endIndex = Math.min(64 + startIndex, calldataNo0xPrefix.length)
+      let data = `0x${calldataNo0xPrefix.slice(startIndex, endIndex)}`
+      if (data.length !== 66) data = data.padEnd(66, '0')
+      governorStorageObj[slot] = data
+    }
+  })
+  // Set the proposal count
+  governorStorageObj[govSlots.proposalCount] = hexZeroPad(proposal.id.toHexString(), 32)
+  // Set the proposal ETA to a random future timestamp
+  governorStorageObj[govSlots.eta] = hexZeroPad(eta.toHexString(), 32)
+  // Set for votes to the total supply of the voting token, and against and abstain votes to zero
+  governorStorageObj[govSlots.forVotes] = hexZeroPad(votingTokenSupply.toHexString(), 32)
+  governorStorageObj[govSlots.againstVotes] = hexZeroPad('0x0', 32)
+  governorStorageObj[govSlots.abstainVotes] = hexZeroPad('0x0', 32)
+  // The canceled and execute slots are packed, so we can zero out that full slot
+  governorStorageObj[govSlots.canceled] = hexZeroPad('0x0', 32)
+
+  console.log('governorStorageObj: ', governorStorageObj)
 
   // --- Simulate it ---
   // We need the following state conditions to be true to successfully simulate a proposal:
@@ -138,20 +189,7 @@ async function simulateNew(config: SimulationConfigNew): Promise<SimulationResul
       // Ensure transactions are queued in the timelock
       [timelockAddress]: { storage: timelockStorageObj },
       // Ensure governor storage is properly configured so `state(proposalId)` returns `Queued`
-      [governor.address]: {
-        storage: {
-          // Set the proposal count to equal the current proposal id
-          [govSlots.proposalCount]: hexZeroPad(proposal.id.toHexString(), 32),
-          // Set the proposal ETA to a random future timestamp
-          [govSlots.eta]: hexZeroPad(eta.toHexString(), 32),
-          // Set for votes to the total supply of the voting token, and against and abstain votes to zero
-          [govSlots.forVotes]: hexZeroPad(votingTokenSupply.toHexString(), 32),
-          [govSlots.againstVotes]: hexZeroPad('0x0', 32),
-          [govSlots.abstainVotes]: hexZeroPad('0x0', 32),
-          // The canceled and execute slots are packed, so we can zero out that full slot
-          [govSlots.canceled]: hexZeroPad('0x0', 32),
-        },
-      },
+      [governor.address]: { storage: governorStorageObj },
     },
   }
   const sim = await sendSimulation(simulationPayload)
@@ -435,6 +473,10 @@ export function getGovernorBravoSlots(proposalId: BigNumberish) {
   //       mapping (address => Receipt) receipts;
   //     }
   const etaOffset = 2
+  const targetsOffset = 3
+  const valuesOffset = 4
+  const signaturesOffset = 5
+  const calldatasOffset = 6
   const forVotesOffset = 9
   const againstVotesOffset = 10
   const abstainVotesOffset = 11
@@ -444,7 +486,7 @@ export function getGovernorBravoSlots(proposalId: BigNumberish) {
   const proposalsMapSlot = '0xa' // proposals ID to proposal struct mapping
   const proposalSlot = getSolidityStorageSlotUint(proposalsMapSlot, proposalId)
   return {
-    proposalCount: '0x7', // slot of the proposalCount storage variable
+    proposalCount: to32ByteHexString('0x7'), // slot of the proposalCount storage variable
     votingToken: '0x9', // slot of voting token, e.g. UNI, COMP  (getter is named after token, so can't generalize it that way),
     proposalsMap: proposalsMapSlot,
     proposal: proposalSlot,
@@ -453,6 +495,10 @@ export function getGovernorBravoSlots(proposalId: BigNumberish) {
     forVotes: hexZeroPad(BigNumber.from(proposalSlot).add(forVotesOffset).toHexString(), 32),
     againstVotes: hexZeroPad(BigNumber.from(proposalSlot).add(againstVotesOffset).toHexString(), 32),
     abstainVotes: hexZeroPad(BigNumber.from(proposalSlot).add(abstainVotesOffset).toHexString(), 32),
+    targets: hexZeroPad(BigNumber.from(proposalSlot).add(targetsOffset).toHexString(), 32),
+    values: hexZeroPad(BigNumber.from(proposalSlot).add(valuesOffset).toHexString(), 32),
+    signatures: hexZeroPad(BigNumber.from(proposalSlot).add(signaturesOffset).toHexString(), 32),
+    calldatas: hexZeroPad(BigNumber.from(proposalSlot).add(calldatasOffset).toHexString(), 32),
   }
 }
 
@@ -484,4 +530,8 @@ function erc20(token: string) {
     'event Approval(address indexed owner, address indexed spender, uint256 value)',
   ]
   return new Contract(token, ERC20_ABI, provider)
+}
+
+function to32ByteHexString(val: BigNumberish) {
+  return hexZeroPad(BigNumber.from(val).toHexString(), 32)
 }
